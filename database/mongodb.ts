@@ -1,5 +1,4 @@
-import mongoose, { Mongoose } from 'mongoose';
-import { cachedDataVersionTag } from 'v8';
+import mongoose from 'mongoose';
 
 // Define the connection cache type
 type MongooseCache = {
@@ -38,7 +37,9 @@ async function connectDB(): Promise<typeof mongoose> {
             throw new Error('MongoDB URI does not exist in env file');
         }
         const options = {
-            bufferCommands: false
+            bufferCommands: false,
+            maxPoolSize: 10,
+            serverSelectionTimeoutMS: 10000,
         };
         // Begin connecting to db (creates promise)
         cached.promise = mongoose.connect(MONGODB_URI!, options).then((mongoose) => {

@@ -5,18 +5,28 @@ export interface IEvent extends Document {
     title: string;
     slug: string;
     description: string;
-    overview: string;
+    overview?: string;            // often missing on scraped sources
     image: string;
     venue: string;
     country: string;
     city: string;
-    date: string;
-    time: string;
-    mode: string;
-    audience: string;
-    agenda: string[];
+    date: string;                 // YYYY-MM-DD
+    time: string;                 // HH:MM (24h)
+    endDate?: string;             // YYYY-MM-DD
+    endTime?: string;             // HH:MM (24h)
+    timezone: string;             // IANA, e.g. America/Toronto — needed for calendar export
+    mode: string;                 // online | offline | hybrid
+    audience?: string;            // often missing on scraped sources
+    agenda?: string[];            // often missing on scraped sources
     organizer: string;
     tags: string[];
+    url: string;                  // canonical link to the source event page
+    source: 'luma' | 'eventbrite' | 'meetup' | 'mlh' | 'company';
+    sourceId?: string;            // platform-native id, when available
+    fingerprint?: string;         // dedup key — set by the scraper upsert path
+    isFree?: boolean;
+    price?: string;
+    category?: 'hackathon' | 'meetup' | 'conference' | 'networking';
     createdAt: Date;
     updatedAt: Date;
 }
@@ -43,7 +53,6 @@ const EventSchema = new Schema<IEvent>(
     },
     overview: {
         type: String,
-        required: [true, 'Overview is required'],
         trim: true,
         maxlength: [500, 'Overview cannot exceed 500 characters'],
     },
@@ -85,16 +94,11 @@ const EventSchema = new Schema<IEvent>(
     },
     audience: {
         type: String,
-        required: [true, 'Audience is required'],
         trim: true,
     },
     agenda: {
         type: [String],
-        required: [true, 'Agenda is required'],
-        validate: {
-        validator: (v: string[]) => v.length > 0,
-        message: 'At least one agenda item is required',
-        },
+        default: [],
     },
     organizer: {
         type: String,
@@ -109,6 +113,16 @@ const EventSchema = new Schema<IEvent>(
             message: 'At least one tag is required',
             },
         },
+    endDate:  { type: String },
+    endTime:  { type: String },
+    timezone: { type: String, default: 'America/Toronto' },
+    url:      { type: String, required: [true, 'Source URL is required'], trim: true },
+    source:   { type: String, enum: ['luma', 'eventbrite', 'meetup', 'mlh', 'company'], required: [true, 'Source is required'] },
+    sourceId: { type: String, trim: true },
+    fingerprint: { type: String },
+    isFree:   { type: Boolean },
+    price:    { type: String, trim: true },
+    category: { type: String, enum: ['hackathon', 'meetup', 'conference', 'networking'] },
     },
     {
         timestamps: true, // Auto-generate createdAt and updatedAt
@@ -116,7 +130,8 @@ const EventSchema = new Schema<IEvent>(
 );
 
 // Pre-save hook for slug generation and data normalization
-EventSchema.pre('save', function (next) {
+// (Mongoose 9 middleware: no next() — return to continue, throw to abort)
+EventSchema.pre('save', function () {
     const event = this as IEvent;
 
     // Generate slug only if title changed or document is new
@@ -133,13 +148,12 @@ EventSchema.pre('save', function (next) {
     if (event.isModified('time')) {
         event.time = normalizeTime(event.time);
     }
-
-    next();
 });
 
 
 // Helper function to generate URL-friendly slug
-function generateSlug(title: string): string {
+// Exported so the scraper upsert path (bulkWrite — pre-save hooks don't run) can reuse it
+export function generateSlug(title: string): string {
     return title
         .toLowerCase()
         .trim()
@@ -188,8 +202,17 @@ function normalizeTime(timeString: string): string {
 // Create unique index on slug for better performance
 EventSchema.index({ slug: 1 }, { unique: true });
 
-// Create compound index for common queries
-EventSchema.index({ date: 1, mode: 1 });
+// Dedup key — sparse so hand-entered events without a fingerprint don't collide on null
+EventSchema.index({ fingerprint: 1 }, { unique: true, sparse: true });
+
+// Compound indexes for the feed's filter paths (each filter field + date ordering)
+EventSchema.index({ mode: 1, date: 1 });
+EventSchema.index({ city: 1, date: 1 });
+EventSchema.index({ tags: 1, date: 1 });
+EventSchema.index({ date: 1, _id: 1 });
+
+// Full-text search for the keyword (?q=) filter
+EventSchema.index({ title: 'text', description: 'text', tags: 'text' });
 
 const Event = models.Event || model<IEvent>('Event', EventSchema);
 

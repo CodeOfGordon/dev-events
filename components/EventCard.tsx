@@ -5,19 +5,19 @@ import Image from 'next/image';
 import posthog from 'posthog-js';
 
 interface Props {
-    title: string, 
-    image: string, 
-    slug: string, 
-    organization: string, 
-    country: string, 
-    city: string, 
-    date: string, 
+    title: string,
+    image: string,
+    slug: string,
+    organizer: string,
+    country: string,
+    city: string,
+    date: string,
     time: string
 }
 
-const EventCard = ({ title, image, slug, organization, country, city, date, time }: Props) => {
+const EventCard = ({ title, image, slug, organizer, country, city, date, time }: Props) => {
     return (
-        <Link href='/events/${slug}' id='event-card' onClick={() => posthog.capture('event_card_clicked', { title, slug, organization, city, country, date, time })}>
+        <Link href={`/events/${slug}`} id='event-card' onClick={() => posthog.capture('event_card_clicked', { title, slug, organizer, city, country, date, time })}>
             <Image src={image} alt={title} width={410} height={300} className="poster" />
 
             <div className='flex flex-row gap-2'>

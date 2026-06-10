@@ -1,0 +1,73 @@
+import { Event, buildFingerprint, generateSlug, normalizeRawEvent } from '@/database';
+
+export type ScrapeSource = 'luma' | 'eventbrite' | 'meetup' | 'mlh' | 'company';
+
+type RawFetcher = () => Promise<unknown[]>;
+
+// Each fetcher returns the source's raw items; runScrape normalizes, fingerprints,
+// and upserts them. Fetchers land in the scraper milestone (event-scraping skill) —
+// until then the registry is empty and a refresh is a no-op.
+const FETCHERS: Partial<Record<ScrapeSource, RawFetcher>> = {};
+
+export interface ScrapeResult {
+    sources: ScrapeSource[];
+    upsertedCount: number;
+    modifiedCount: number;
+    errors: string[];
+}
+
+/**
+ * Run the scrape → normalize → dedup-upsert pipeline for the requested sources
+ * (all registered sources when omitted). Caller must have awaited connectDB().
+ */
+export async function runScrape({ sources }: { sources?: string[] } = {}): Promise<ScrapeResult> {
+    const wanted = (Object.keys(FETCHERS) as ScrapeSource[]).filter(
+        (s) => !sources || sources.includes(s),
+    );
+
+    const result: ScrapeResult = { sources: wanted, upsertedCount: 0, modifiedCount: 0, errors: [] };
+
+    for (const source of wanted) {
+        try {
+            const raw = await FETCHERS[source]!();
+            const ops = raw.flatMap((item) => {
+                try {
+                    const doc = normalizeRawEvent(item, source);
+                    const fingerprint = buildFingerprint(doc);
+                    return [{
+                        updateOne: {
+                            filter: { fingerprint },
+                            // Pre-save hooks don't run on bulkWrite — doc is already
+                            // normalized and slug is derived here
+                            update: {
+                                $set: doc,
+                                $setOnInsert: { fingerprint, slug: generateSlug(doc.title) },
+                            },
+                            upsert: true,
+                        },
+                    }];
+                } catch (e) {
+                    result.errors.push(`${source}: skipped item — ${(e as Error).message}`);
+                    return [];
+                }
+            });
+            if (!ops.length) continue;
+
+            const res = await Event.bulkWrite(ops, { ordered: false });
+            result.upsertedCount += res.upsertedCount;
+            result.modifiedCount += res.modifiedCount;
+        } catch (e: unknown) {
+            // E11000 = two sources raced on the same fingerprint — the event is
+            // already stored, so it's a benign dedup outcome, not a failure
+            const err = e as { code?: number; result?: { upsertedCount?: number; modifiedCount?: number } };
+            if (err.code === 11000 && err.result) {
+                result.upsertedCount += err.result.upsertedCount ?? 0;
+                result.modifiedCount += err.result.modifiedCount ?? 0;
+            } else {
+                result.errors.push(`${source}: ${(e as Error).message}`);
+            }
+        }
+    }
+
+    return result;
+}
