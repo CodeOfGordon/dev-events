@@ -1,13 +1,24 @@
 import { Event, buildFingerprint, generateSlug, normalizeRawEvent } from '@/database';
+import { fetchLuma } from './fetchers/luma';
+import { fetchEventbrite } from './fetchers/eventbrite';
+import { fetchMeetup } from './fetchers/meetup';
+import { fetchMlh } from './fetchers/mlh';
+import { fetchCompany } from './fetchers/company';
 
 export type ScrapeSource = 'luma' | 'eventbrite' | 'meetup' | 'mlh' | 'company';
 
 type RawFetcher = () => Promise<unknown[]>;
 
 // Each fetcher returns the source's raw items; runScrape normalizes, fingerprints,
-// and upserts them. Fetchers land in the scraper milestone (event-scraping skill) —
-// until then the registry is empty and a refresh is a no-op.
-const FETCHERS: Partial<Record<ScrapeSource, RawFetcher>> = {};
+// and upserts them. luma/mlh/company hit free public endpoints; eventbrite/meetup
+// run paid Apify actors (capped via SCRAPE_MAX_ITEMS, see lib/fetchers/config.ts).
+const FETCHERS: Partial<Record<ScrapeSource, RawFetcher>> = {
+    luma: fetchLuma,
+    eventbrite: fetchEventbrite,
+    meetup: fetchMeetup,
+    mlh: fetchMlh,
+    company: fetchCompany,
+};
 
 export interface ScrapeResult {
     sources: ScrapeSource[];
