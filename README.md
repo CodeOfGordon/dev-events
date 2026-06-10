@@ -1,36 +1,54 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# DevEvents
 
-## Getting Started
+One feed for **tech / AI / data dev & networking events and hackathons** across the
+Greater Toronto Area, Ottawa, Montreal and Quebec City — auto-scraped from Luma,
+Eventbrite, Meetup, MLH and company sites, deduplicated, and exportable to
+Google / Outlook / Apple Calendar (+ iCal).
 
-First, run the development server:
+Pipeline: `cron → scrapers → normalize + dedup (fingerprint) → MongoDB → API → feed UI → calendar`.
+
+## Stack
+
+Next.js 16 (App Router) · React 19 · TypeScript · Tailwind v4 · MongoDB + Mongoose (Atlas) ·
+PostHog · Apify (Eventbrite/Meetup actors) · GitHub Actions cron.
+
+## Getting started
 
 ```bash
+cp .env.example .env.local   # fill in MONGODB_URI, CRON_SECRET, APIFY_TOKEN, ...
+npm install
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open http://localhost:3000. Trigger a scrape against the dev server:
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+```bash
+curl -X POST http://localhost:3000/api/refresh \
+  -H "Authorization: Bearer $CRON_SECRET" \
+  -H "Content-Type: application/json" \
+  -d '{"sources":["luma","mlh","company"]}'   # omit body to run all sources
+```
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## How it's organized
 
-## Learn More
+| Where | What |
+|---|---|
+| `lib/fetchers/` | Per-source scrapers + `config.ts` (cities, company registry, caps) |
+| `lib/scrape.ts` | scrape → normalize → fingerprint → bulk upsert pipeline |
+| `database/` | Mongoose models, normalization, dedup fingerprint |
+| `lib/events.ts` | Server data layer the pages query directly |
+| `app/api/` | Public API: `GET /api/events`, `GET /api/events/[slug]`, `POST /api/refresh` |
+| `app/`, `components/` | Home sections, `/events` filter/search feed, event detail + calendar export |
+| `.github/workflows/scrape.yml` | Nightly cron (free sources) + weekly (paid Apify sources) |
+| `.claude/docs/` | Project knowledge base: CONTEXT, decisions (ADRs), gotchas |
 
-To learn more about Next.js, take a look at the following resources:
+**Sources** — Luma (direct public JSON API, free), MLH (embedded season-page JSON),
+company registry (provider-agnostic adapters: Luma calendars + WordPress Events
+Calendar REST — add a company in one line in `lib/fetchers/config.ts`),
+Eventbrite + Meetup (paid Apify actors, capped via `SCRAPE_MAX_ITEMS`).
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## Deploy
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Vercel + MongoDB Atlas. Set env vars from `.env.example`, then add `SITE_URL` and
+`CRON_SECRET` as GitHub repo secrets so the scheduled workflow can hit
+`POST /api/refresh` on the deployment.

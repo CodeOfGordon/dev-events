@@ -15,7 +15,8 @@ hackathons** from **Luma, Eventbrite, Meetup, and company sites** (RBC, Google/G
 Databricks, MLH), **normalizes** them into one unified feed, and lets users
 **filter/search** and **add events to Google / Outlook / Apple / Yahoo / iCal calendars**.
 
-**Focus region: the Greater Toronto Area (GTA).**
+**Focus regions: the GTA, Ottawa, Montreal and Quebec City** (per-source city config in
+`lib/fetchers/config.ts` — see ADR-011).
 
 Pipeline: `scheduler → scraper → normalizer (dedup) → MongoDB → API → feed UI → calendar`.
 
@@ -100,19 +101,40 @@ that is stale; **MongoDB is authoritative**.)
   **`event_card_clicked`** (EventCard). Keep these names; add new `capture()` calls as
   features land.
 
-### Frontend — landing page only
-- **`app/layout.tsx`** — root layout; renders `Navbar`, a full-screen `LightRays` WebGL
-  background, Google fonts (Schibsted Grotesk + Martian Mono), and `metadata`.
-- **`app/page.tsx`** — landing page: hero copy, `ExploreBtn`, and a "Featured Events" grid
-  mapping **hard-coded** `events` from `lib/constants.ts` into `EventCard`.
-- **`components/EventCard.tsx`** — `'use client'` card; links to `/events/${slug}`, fires
-  `event_card_clicked`. Props use the canonical `organizer` field.
-- **`components/ExploreBtn.tsx`** — `'use client'`; scrolls to `#events`, fires
-  `explore_events_clicked`.
-- **`components/Navbar.tsx`**, **`components/LightRays.tsx`** (+ `LightRays.css`) — present.
-- **`lib/constants.ts`** — placeholder `events` array (GTA samples). **Temporary** — will be
-  replaced by live data from `GET /api/events`.
+### Scrapers (`lib/fetchers/`) — built and live-tested (2026-06-10)
+- **`config.ts`** — single source of truth: cities/slugs per source, `COMPANY_SOURCES`
+  provider registry, `SCRAPE_MAX_ITEMS` cap (env, default 50).
+- **`luma.ts`** — direct public `api.lu.ma` JSON (free, no Apify — ADR-009); city
+  discover pages + company calendars. **`mlh.ts`** — embedded season-page JSON,
+  Ontario/Quebec + digital. **`company.ts`** — provider-agnostic adapters (`luma`
+  calendar, WordPress `tribe` REST) over the config registry (ADR-010).
+- **`eventbrite.ts` / `meetup.ts`** — Apify actors via **`apify.ts`** (start → poll →
+  dataset; `?maxItems=`/`?memory=`/`?timeout=` run options are the REAL billing caps —
+  see gotchas). **`relevance.ts`** — keyword gate + tag derivation for the broad feeds.
+- `database/normalize.ts` arms map each source's verified live item shape; date/time
+  normalization is timezone-aware (UTC-shift bug fixed); city spellings canonicalized.
+
+### Frontend — fully redesigned (2026-06-10)
+- **`app/page.tsx`** — live home sections: this week / company & big tech / hackathons /
+  per-city rails (`getHomeSections()`); `force-dynamic`.
+- **`app/events/page.tsx`** — the feed: `FilterBar` (category/city/format/price/source/
+  date-preset, URL-synced), `SearchBox` ($text), `Pagination`. **`app/events/[slug]/`** —
+  detail page with `AddToCalendar` (Google/Outlook/Microsoft365/Apple/iCal),
+  `RegisterButton` (outbound to source), related events, `generateMetadata`.
+- **`lib/events.ts`** — server-only Mongoose data layer returning serializable
+  `EventDoc`s (ADR-012). **`lib/format.ts`** — display formatting for the string
+  date/time fields. **`lib/constants.ts`** — UI constants (cities, labels) — the
+  hard-coded sample events are gone.
+- **`components/`** — EventCard (amber accent = company event), EventGrid, SectionRail,
+  EventImage (plain `<img>` + fallback), Footer, EmptyState, skeletons (`loading.tsx`).
+- PostHog events: `event_card_clicked`, `explore_events_clicked` (kept) +
+  `filter_applied`, `search_performed`, `calendar_add_clicked`, `register_link_clicked`.
 - **`lib/utils.ts`** — `cn()` helper (clsx + tailwind-merge).
+
+### Scheduler — built
+- **`.github/workflows/scrape.yml`** — nightly cron POSTs `/api/refresh` per source
+  (free sources nightly; paid Apify sources weekly). Needs `SITE_URL` + `CRON_SECRET`
+  repo secrets once deployed.
 
 ### API layer (`app/api/`) — built and live-tested
 All routes: `export const runtime = 'nodejs'`, `dynamic = 'force-dynamic'`,
@@ -135,17 +157,15 @@ All routes: `export const runtime = 'nodejs'`, `dynamic = 'force-dynamic'`,
 
 ---
 
-## 4. What is NOT built yet
+## 4. What is NOT done yet
 
-Nothing below exists in the repo — these are the work items.
-
-- **Scrapers** — the `FETCHERS` registry in `lib/scrape.ts` is empty: no Apify/Playwright
-  fetchers implemented yet. Everything downstream (normalize → fingerprint → upsert →
-  API) is already wired and waiting for them.
-- **Events feed UI** — no `/events` route, no filter/search UI; the landing grid is static.
-- **Add-to-calendar button** — `add-to-calendar-button-react` is not installed; no
-  calendar component.
-- **Scheduler** — no cron config to run the scraper nightly.
+- **Deployment** — not deployed; the cron workflow needs `SITE_URL`/`CRON_SECRET` repo
+  secrets once it is. Atlas IP allowlist + `Event.syncIndexes()` on deploy still apply.
+- **Meetup live verification** — the fetcher is built and its item shape verified, but
+  the one full pipeline run was blocked when the Apify free credit ran out mid-validation
+  (2026-06). First weekly cron run (or a manual `workflow_dispatch`) completes it.
+- **Stale docs in Atlas** — 8 pre-normalization docs (city `Montréal`, one `&#8211;`
+  title); delete or let them age out past their event dates.
 
 ---
 

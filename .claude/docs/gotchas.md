@@ -13,29 +13,40 @@ touching scraping, dedup, the calendar button, MongoDB, or Next.js route handler
 
 ## Scraping
 
-### Luma
-- `lu.ma/sf`, `lu.ma/toronto` etc. are **city discovery pages** (calendar slugs) — scrape these, not individual event pages. For `mhamas/luma-calendar-events-scraper` the `slugs` input is the bare slug (`toronto`), NOT the full URL.
-- Luma events sometimes have `null` end times — treat as single-day / all-day events (omit `endTime` rather than passing null; see Calendar Button).
-- Luma timezone is usually in the event object but sometimes missing; default to `America/Toronto` (our focus region) and log a warning.
-- Luma private events will 404 the scraper; skip gracefully.
-- The calendar scraper's `text` field pulls in the Website Content Crawler per event and burns extra credits — disable/cap it during testing.
+### Luma (direct public API — no Apify; see ADR-009)
+- `GET api.lu.ma/url?url=<slug>` resolves a slug. `kind` is `discover-place` (toronto, montreal), `calendar` (ottawa, company calendars) or something else (user pages — reject). `quebec-city` → 404 (no such discovery page).
+- Events: `discover/get-paginated-events?discover_place_api_id=…&pagination_limit=N` and `calendar/get-items?calendar_api_id=…&period=future&pagination_limit=N`. Entries nest the event plus entry-level `calendar` / `hosts` / `ticket_info` — the fetcher flattens them into one raw object.
+- `start_at`/`end_at` are **UTC ISO** — convert with the event's `timezone` (a 12:00Z start is 08:00 Toronto; naive UTC date-split shifts evening events to the next day).
+- List entries have **no description** (schema requires one — synthesize) and `geo_address_info.mode: "obfuscated"` hides street addresses (fall back to sublocality/city).
+- Beware misleading vanity slugs: `lu.ma/cohere` is a coliving community, NOT Cohere AI (their calendar is `cal-400NOkbFqzrkJNA`). Verify a calendar belongs to the company before adding it to the registry.
 
-### Eventbrite
-- Eventbrite requires a search query or category — don't scrape the homepage. Use `parseforge/eventbrite-scraper` search mode with `city` slug (e.g. `toronto--ontario`), `category`, `format`, `price`.
+### Eventbrite (`parseforge/eventbrite-scraper`)
+- Search mode city slug format is `country--city`: **`canada--toronto`** (NOT `toronto--ontario`); category `science-and-tech`. One run per city.
+- Item dates are **already local**: `startDate` `YYYY-MM-DD` + `startTime` `HH:MM` + `timezone` — store as-is, no conversion.
+- `isOnline === true` is the online signal — the venue strings still say "Online", don't trust them.
+- `pricing.isFree` can be `false` with all price fields `null` — treat as unknown-paid, don't infer free.
 - The free Apify tier caps Eventbrite at **100 items**; batch by city to avoid timeouts.
-- Eventbrite "online" events still set location to the string `"Online"`, not null — map `isOnline`/`isOnline === true` to `mode: 'online'`, don't trust the location field.
 
-### Meetup
-- Meetup.com heavily rate-limits; Apify actors (`easyapi/meetup-events-scraper`) handle proxy rotation automatically.
+### Meetup (`easyapi/meetup-events-scraper`) — billing traps, learned the expensive way
+- **The `maxItems` INPUT field is advisory and the actor ignores it** — a 12-URL run requested 20 items, collected 186+, and billed ~$1.39. The REAL cap is the **`?maxItems=` run option** on the start request (`POST /v2/acts/{id}/runs?maxItems=N`) — Apify enforces billing there. `lib/fetchers/apify.ts` always sets it.
+- Pay-per-event actors charge the start fee **per GB of memory** — this actor defaults to 4 GB = 4× the $0.09 start fee. Pass `?memory=2048` (peak observed ~1.3 GB).
+- The actor crawls search URLs **sequentially at ~1 min each** — keep the URL list to ~4 (one umbrella `tech` search per city; the relevance gate classifies). The refresh route has a 300 s ceiling in production, which is also why the cron triggers each source in a separate POST.
+- `dateTime` is ISO **with offset** (`2026-06-11T17:30:00-04:00`); `eventType` is `PHYSICAL`/`ONLINE`; `venue.country` is lowercase `ca`; `feeSettings == null` ⇒ free.
 - Group URLs vs. event-search URLs behave differently in actors — feed `searchUrls`.
 - RSVP counts can be stale by hours; don't treat them as live.
 
+### MLH (direct fetch — no Apify)
+- Season pages (`mlh.io/seasons/2026/events`) embed the full event list as a JSON array (`[{"id":"…`): `name`, `startsAt`/`endsAt` UTC ISO, `venueAddress{city,state,country}`, `formatType` `physical|digital`, `websiteUrl`, `status`. Extract with a balanced-bracket scan from the `[{"id":"` marker — no HTML parser needed.
+- Pages list the whole season including `status: "ended"` events — filter on status + end date.
+- Digital events are "Everywhere, Worldwide" (sometimes country `US`) — store as city `Online`, keep them (joinable from anywhere).
+
 ### General scraping
-- Run every actor with a small cap (`maxItems`/`maxEvents` = 3–10) on first test, verify field shapes + the run/poll plumbing, then increase.
+- Run every actor with a small cap on first test, verify field shapes + the run/poll plumbing, then increase. Set the cap as the **`?maxItems=` run option** (billing-enforced), not just the actor input (advisory — see Meetup above).
+- Always pass a **server-side `?timeout=` run option** matching your poll deadline — a client-side poll timeout alone leaves the actor running (and billing) on Apify. Abort orphaned runs (`POST /v2/actor-runs/{id}/abort`).
 - Run-status polling: prefer `GET /v2/actor-runs/{runId}` (optionally `?waitForFinish=60`), or `GET /v2/acts/{actorId}/runs/last` to fetch the most recent run — run IDs are per-invocation.
 - The sync endpoint `run-sync-get-dataset-items` has a hard **300 s timeout** (HTTP 408 on overrun) — use async run + poll for anything that crawls many pages.
 - Pass the token as a header — `Authorization: Bearer <APIFY_TOKEN>` — never `?token=` (it leaks into logs). Read it from `process.env.APIFY_TOKEN`.
-- Apify free tier: ~$5/month compute credit; pay-per-result actors are predictable (Eventbrite ~$4/1k, Meetup ~$4.99/1k). One full Eventbrite run can eat the whole monthly credit — keep caps small while developing.
+- Apify free tier: ~$5/month credit, and it goes FAST (one runaway meetup run ate ~$1.40; the 2026-06 validation exhausted the month). `SCRAPE_MAX_ITEMS` caps every source; the cron runs paid sources weekly, free sources nightly.
 - Always check `run.status === 'SUCCEEDED'` before fetching dataset items.
 - **`pre('save')` hooks do NOT run on scraper upserts** — normalize `date`/`time`/`slug` yourself before writing. See the MongoDB section.
 
@@ -235,12 +246,12 @@ EventSchema.index(
 - Existing: `slug` unique, compound `{ date: 1, mode: 1 }`. That compound is **backwards** for the dominant "filter by mode, range/sort by date" query — prefer `{ mode: 1, date: 1 }` (ESR rule: Equality, Sort, Range). Add `{ date: 1, _id: 1 }` for the no-filter paginated feed, plus `{ city: 1, date: 1 }` and `{ tags: 1, date: 1 }`.
 - Mongoose auto-builds indexes on model init (`autoIndex`), which can trigger a foreground build on a hot path in prod. Set `autoIndex: process.env.NODE_ENV !== 'production'` in schema options and run `Event.syncIndexes()` on deploy.
 
-### normalizeDate UTC-shift bug (open debt — fix in the scraper milestone)
-`normalizeDate` (both `database/event.model.ts` and `database/normalize.ts`) does
-`new Date(input).toISOString().split('T')[0]` — for ISO inputs with an offset
-(e.g. `2026-07-15T20:00:00-04:00`, an 8 PM Toronto event) the UTC conversion rolls the
-date to the **next day**. Plain dates like `"June 15, 2026"` are unaffected. Fix when
-wiring real fetchers: extract the date in the event's timezone (`America/Toronto`), not UTC.
+### normalizeDate UTC-shift bug — FIXED (2026-06-10)
+`normalizeDate`/`normalizeTime` (`database/normalize.ts`, reused by the model's pre-save
+hook) now extract wall-clock parts in the event's IANA timezone via `Intl.DateTimeFormat`
+(`hourCycle: 'h23'`). Date-only strings ("June 15, 2026") are read back with local getters —
+running them through a timezone conversion is what used to shift the day. Pass the event's
+timezone as the second argument; it defaults to `America/Toronto`.
 
 ### Mongoose 9 breaking changes (verified against installed 9.6.2 types)
 - **Middleware has no `next()` callback.** `pre('save', fn)` receives `(this, opts: SaveOptions)` — typing the param as `next` and calling it is a TS error (`SaveOptions has no call signatures`). Return (or resolve) to continue; **throw** to abort with an error.

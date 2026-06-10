@@ -1,7 +1,7 @@
 # Tech Event Aggregator — Agent Architecture
 
 ## Project Purpose
-A web application that scrapes upcoming tech/AI/data company dev & networking events and hackathons from multiple sources (Luma, Eventbrite, Meetup, direct company websites, MLH website for hackathons), normalizes them into a unified feed, and lets users filter/search events and add them to Google, Outlook, or Apple Calendar. Primary region: the Greater Toronto Area.
+A web application that scrapes upcoming tech/AI/data company dev & networking events and hackathons from multiple sources (Luma, Eventbrite, Meetup, direct company websites, MLH website for hackathons), normalizes them into a unified feed, and lets users filter/search events and add them to Google, Outlook, or Apple Calendar. Primary regions: the Greater Toronto Area, Ottawa, Montreal and Quebec City.
 
 ---
 
@@ -19,9 +19,9 @@ A web application that scrapes upcoming tech/AI/data company dev & networking ev
 ## Agent Roles
 
 ### 1. `scraper-agent`
-**Responsibility**: Discovers and extracts raw event data from event platforms.
-- Sources: Luma (lu.ma), Eventbrite, Meetup.com, and JS-heavy company pages (AWS, Databricks, GDG/Bevy, RBC).
-- Tools: Apify MCP (`@apify/actors-mcp-server`) for Luma/Eventbrite/Meetup actors; Playwright MCP for JS-heavy pages; fetch MCP for static pages (MLH, Communitech, Hackathons.ca); Brave Search MCP to discover URLs first.
+**Responsibility**: Discovers and extracts raw event data from event platforms. **Implemented in `lib/fetchers/`** (runtime fetchers use plain HTTP — MCP servers are dev-time tools only).
+- Sources: Luma (direct public `api.lu.ma` JSON — ADR-009), Eventbrite + Meetup (Apify actors with billing-capped run options), MLH (embedded season-page JSON), company registry (provider-agnostic `luma`/`tribe` adapters — ADR-010).
+- Dev tools: Apify MCP to verify actors/shapes; fetch MCP for static pages; Brave Search MCP to discover URLs; Playwright MCP for JS-heavy pages (none currently scraped — GDG/Reactor skipped, see ADR-010).
 - Output: Raw JSON event objects → hands off to `normalizer-agent`.
 - Skills: `.claude/skills/event-scraping/`, `.claude/skills/apify-actors/`
 

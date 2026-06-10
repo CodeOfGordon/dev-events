@@ -108,7 +108,46 @@ Scrapers emit **raw JSON only**; the normalizer-agent converts raw → canonical
 
 ---
 
+## ADR-009 — Luma via its direct public JSON API (supersedes the ADR-004 Luma actor)
+**Status**: Accepted · 2026-06-10
+
+**Context**: ADR-004 picked the `mhamas/luma-calendar-events-scraper` Apify actor (72% success rate, 26 users). While verifying it, `api.lu.ma` turned out to answer unauthenticated JSON for everything we need.
+
+**Decision**: Scrape Luma directly: `GET api.lu.ma/url?url=<slug>` resolves a slug to a **discover-place** (toronto, montreal) or **calendar** (ottawa, company calendars); then `discover/get-paginated-events?discover_place_api_id=…` / `calendar/get-items?calendar_api_id=…&period=future` return full event entries (event + calendar + hosts + ticket_info). No Apify, no credits, ~2 s for all cities.
+
+**Consequences**: Free and fast; the biggest-volume source costs nothing nightly. It is an *unofficial* API — if Luma locks it down, fall back to the ADR-004 actor (the fetcher interface hides the mechanism). Luma's robots.txt only restricts Googlebot on a few paths. List entries carry no description — `normalizeRawEvent` synthesizes one (schema requires it).
+
+---
+
+## ADR-010 — Company sources: provider-agnostic registry, not per-company scrapers
+**Status**: Accepted · 2026-06-10
+
+**Context**: The user wants company dev-event pages (AI labs, big tech, banks) covered, but company-site scrapers rot fast and most companies have no stable feed.
+
+**Decision**: `company` is a **registry** (`lib/fetchers/config.ts` → `COMPANY_SOURCES`): each entry maps a company to one of the generic **provider adapters** in `lib/fetchers/company.ts` — currently `luma` (any company Luma calendar, e.g. Cohere `cal-400NOkbFqzrkJNA`, Notion Toronto `notiontoronto`) and `tribe` (any WordPress site running The Events Calendar, e.g. Vector Institute). Adding a company on a supported platform is one config line; a new platform is one adapter.
+
+**Investigated and skipped**: GDG/Bevy (`gdg.community.dev` robots.txt disallows `/api/` for all agents; pages are a JS SPA), Microsoft Reactor (JS-only SPA, unstable), Shopify/Notion-corp/banks incl. Capital One, RBC/Borealis, TD (no public dev-events feed — their events surface on the Luma/Eventbrite/Meetup city feeds, which we already scrape). Mila (Drupal, no structured feed; Montreal covered by city feeds).
+
+**Consequences**: Quality over quantity — `company` only carries sources that won't silently rot. The amber "Company" treatment in the UI keys off `source === 'company'`.
+
+---
+
+## ADR-011 — Region set: GTA + Ottawa + Montreal + Quebec City
+**Status**: Accepted · 2026-06-10
+
+City slugs/queries per source live in `lib/fetchers/config.ts`: Luma (toronto, montreal, ottawa — no Quebec City discovery page exists), Eventbrite (`canada--toronto`, `canada--mississauga`, `canada--ottawa`, `canada--montreal`), Meetup (Toronto, Ottawa, Montréal, Québec), MLH (all Ontario/Quebec + digital). `normalize.ts` canonicalizes spellings (Montréal→Montreal, Québec→Quebec City) so filters and fingerprints agree across sources.
+
+---
+
+## ADR-012 — Frontend reads Mongo directly in server components
+**Status**: Accepted · 2026-06-10
+
+Pages query Mongoose via `lib/events.ts` (returns plain serializable `EventDoc`s) instead of fetching `/api/events` over HTTP — no self-HTTP hop; the API route stays as the external surface with identical filter semantics. Event images render via plain `<img>` with an error fallback (`components/EventImage.tsx`) because scraped image hosts are arbitrary and `next/image` `remotePatterns` can't enumerate them.
+
+---
+
 ## Known follow-ups / tech debt
-Surfaced during the agent-docs review (2026-06-08) — these are existing **code** issues, not doc issues:
-- `database/mongodb.ts:2` has a stray unused `import { cachedDataVersionTag } from 'v8';` — remove it.
-- `database/event.model.ts` `normalizeDate()` uses `new Date(dateString).toISOString()`, which can shift a local date by one day across timezones. Consider parsing as UTC or keeping the date string as-is when already `YYYY-MM-DD`.
+- ~~`database/mongodb.ts` stray `v8` import~~ — already removed.
+- ~~`normalizeDate()` UTC day-shift~~ — **fixed 2026-06-10**: `normalizeDate`/`normalizeTime` extract wall-clock parts in the event's IANA timezone (`Intl.DateTimeFormat`); `event.model.ts` reuses the same helpers.
+- 8 stale Atlas docs predate the city/entity normalization fixes (city `Montréal`, one `&#8211;` title) — delete or let them age out; re-scrapes create the canonical versions.
+- Meetup fetcher is the one source not yet live-verified end-to-end (Apify free credit exhausted mid-validation; item shape + plumbing verified — see gotchas).
