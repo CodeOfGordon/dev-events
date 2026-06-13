@@ -4,7 +4,7 @@ import Link from 'next/link';
 import posthog from 'posthog-js';
 import { Building2, Clock, MapPin, Ticket } from 'lucide-react';
 import EventImage from '@/components/EventImage';
-import { CATEGORY_LABELS, COUNTRY_FLAG, HIDDEN_TAGS, SOURCE_LABELS } from '@/lib/constants';
+import { CATEGORY_LABELS, COUNTRY_FLAG, HIDDEN_TAGS, LANE_LABELS, laneOf } from '@/lib/constants';
 import { dateBadge, formatDateRange, formatTime } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import type { EventDoc } from '@/lib/events';
@@ -19,8 +19,11 @@ interface Props {
  */
 const EventCard = ({ event }: Props) => {
     const { title, slug, image, organizer, city, country, date, endDate, time, mode, source, category, isFree } = event;
-    const isCompany = source === 'company';
+    const lane = laneOf(source, category);
+    const isCompany = lane === 'company';
     const flag = COUNTRY_FLAG[country] ?? '';
+    const laneColor =
+        lane === 'company' ? 'text-amber-300' : lane === 'hackathon' ? 'text-primary' : 'text-light-100';
     const badge = dateBadge(date);
     const visibleTags = event.tags.filter((t) => !HIDDEN_TAGS.includes(t)).slice(0, 2);
 
@@ -44,10 +47,10 @@ const EventCard = ({ event }: Props) => {
                 <span
                     className={cn(
                         'glass absolute right-3 top-3 rounded-md px-2 py-1 text-[10px] font-semibold uppercase tracking-wider',
-                        isCompany ? 'text-amber-300' : 'text-light-100',
+                        laneColor,
                     )}
                 >
-                    {isCompany ? 'Company' : SOURCE_LABELS[source]}
+                    {LANE_LABELS[lane]}
                 </span>
             </div>
 

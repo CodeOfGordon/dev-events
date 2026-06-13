@@ -4,6 +4,8 @@ import { fetchEventbrite } from './fetchers/eventbrite';
 import { fetchMeetup } from './fetchers/meetup';
 import { fetchMlh } from './fetchers/mlh';
 import { fetchCompany } from './fetchers/company';
+import { isConsumerEvent, isRelevant } from './fetchers/relevance';
+import { DEV_ONLY_COMPANIES } from './fetchers/config';
 
 export type ScrapeSource = 'luma' | 'eventbrite' | 'meetup' | 'mlh' | 'company';
 
@@ -48,6 +50,17 @@ export async function runScrape({ sources }: { sources?: string[] } = {}): Promi
                     // Canada/US (region 'INTL'). Online + unknown-location events are
                     // kept — joinable from anywhere / not confirmed foreign.
                     if (doc.region === 'INTL') return [];
+                    // Company feeds: drop consumer/retail noise (Tesla Father's Day,
+                    // store events), and for consumer brands keep only dev events.
+                    if (source === 'company') {
+                        const text = `${doc.title} ${doc.description}`;
+                        if (isConsumerEvent(text)) return [];
+                        // Relevance on title+description only — NOT tags, which always
+                        // carry a baseline 'tech' tag that would match everything.
+                        if (DEV_ONLY_COMPANIES.has(doc.organizer) && !isRelevant(text)) {
+                            return [];
+                        }
+                    }
                     const fingerprint = buildFingerprint(doc);
                     return [{
                         updateOne: {

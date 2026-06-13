@@ -20,6 +20,7 @@ export const CATEGORY_LABELS: Record<string, string> = {
     networking: 'Networking',
 };
 
+// Platform labels — used where the actual platform matters (e.g. "Register on Eventbrite").
 export const SOURCE_LABELS: Record<string, string> = {
     luma: 'Luma',
     eventbrite: 'Eventbrite',
@@ -27,6 +28,25 @@ export const SOURCE_LABELS: Record<string, string> = {
     mlh: 'MLH',
     company: 'Company',
 };
+
+/**
+ * UX lanes — the three ways people actually browse: official company events,
+ * hackathons, and local community events (Luma/Eventbrite/Meetup collapsed,
+ * since the platform doesn't matter when you're looking for something to attend).
+ */
+export type Lane = 'company' | 'hackathon' | 'local';
+
+export const LANE_LABELS: Record<Lane, string> = {
+    company: 'Company',
+    hackathon: 'Hackathon',
+    local: 'Local',
+};
+
+export function laneOf(source: string, category?: string): Lane {
+    if (source === 'company') return 'company';
+    if (source === 'mlh' || category === 'hackathon') return 'hackathon';
+    return 'local';
+}
 
 export const MODE_LABELS: Record<string, string> = {
     offline: 'In person',

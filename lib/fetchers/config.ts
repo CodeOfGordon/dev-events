@@ -58,54 +58,112 @@ export const MLH_PROVINCES = new Set(['ON', 'Ontario', 'QC', 'Quebec', 'Québec'
  * Still excluded: GDG/Bevy + CNCF community (robots.txt disallows /api/), Apple/Meta
  * (no public feed), Shopify/banks (no dev-events feed) — those ride the city feeds.
  */
-export type CompanySource =
-    | { provider: 'luma'; company: string; slug?: string; calendarApiId?: string }
-    | { provider: 'tribe'; company: string; base: string; city: string }
-    | { provider: 'google' | 'aws' | 'reactor' | 'nvidia' | 'databricks' | 'snowflake' | 'figma'; company: string }
-    | { provider: 'yc'; company: string; slugs: string[] }
-    | {
-          provider: 'tesla';
-          company: string;
-          locale: string;
-          centroids: { city: string; lat: number; lng: number }[];
-      };
+/** Industry buckets — drive the "companies we track" directory + filtering. */
+export type Industry =
+    | 'AI Labs'
+    | 'ML & Data'
+    | 'Dev Tools'
+    | 'Cloud & Infra'
+    | 'Big Tech'
+    | 'Startups & VC'
+    | 'Research';
+
+/** Display order for the directory (most AI/dev-relevant first). */
+export const INDUSTRY_ORDER: Industry[] = [
+    'AI Labs',
+    'ML & Data',
+    'Dev Tools',
+    'Cloud & Infra',
+    'Big Tech',
+    'Startups & VC',
+    'Research',
+];
+
+/** Fields shared by every company entry, regardless of provider. */
+type CompanyMeta = {
+    company: string;
+    industry: Industry;
+    /** Consumer brands (e.g. Tesla) whose feed also carries dev events — keep only the relevant ones. */
+    devOnly?: boolean;
+};
+
+export type CompanySource = CompanyMeta &
+    (
+        | { provider: 'luma'; slug?: string; calendarApiId?: string }
+        | { provider: 'tribe'; base: string; city: string }
+        | { provider: 'google' | 'aws' | 'reactor' | 'nvidia' | 'databricks' | 'snowflake' | 'figma' }
+        | { provider: 'yc'; slugs: string[] }
+        | { provider: 'tesla'; locale: string; centroids: { city: string; lat: number; lng: number }[] }
+    );
 
 export const COMPANY_SOURCES: CompanySource[] = [
     // Bespoke platform feeds (big tech / official dev-event hubs)
-    { provider: 'google', company: 'Google' },
-    { provider: 'aws', company: 'AWS' },
-    { provider: 'reactor', company: 'Microsoft Reactor' },
-    { provider: 'yc', company: 'Y Combinator', slugs: ['startup-school-2026'] },
-    { provider: 'nvidia', company: 'NVIDIA' },
+    { provider: 'google', company: 'Google', industry: 'Big Tech' },
+    { provider: 'aws', company: 'AWS', industry: 'Cloud & Infra' },
+    { provider: 'reactor', company: 'Microsoft Reactor', industry: 'Big Tech' },
+    { provider: 'yc', company: 'Y Combinator', industry: 'Startups & VC', slugs: ['startup-school-2026'] },
+    { provider: 'nvidia', company: 'NVIDIA', industry: 'ML & Data' },
     {
         provider: 'tesla',
         company: 'Tesla',
+        industry: 'Big Tech',
+        devOnly: true, // feed is mostly consumer/retail — keep only dev/tech events
         locale: 'en_ca',
         centroids: [
             { city: 'Toronto', lat: 43.6532, lng: -79.3832 },
             { city: 'Montreal', lat: 45.5019, lng: -73.5674 },
         ],
     },
-    { provider: 'databricks', company: 'Databricks' },
-    { provider: 'snowflake', company: 'Snowflake' },
-    { provider: 'figma', company: 'Figma' },
+    { provider: 'databricks', company: 'Databricks', industry: 'ML & Data' },
+    { provider: 'snowflake', company: 'Snowflake', industry: 'ML & Data' },
+    { provider: 'figma', company: 'Figma', industry: 'Dev Tools' },
 
     // Luma calendars (generic provider — a company here is pure config).
-    // calendar_api_ids verified against the official calendars 2026-06-10; several
-    // had 0 upcoming events that day — they cost one cheap request and populate
+    // calendar_api_ids verified against the official calendars; several may have 0
+    // upcoming events on a given day — they cost one cheap request and populate
     // automatically when the company posts.
-    { provider: 'luma', company: 'Cohere', calendarApiId: 'cal-400NOkbFqzrkJNA' },
-    { provider: 'luma', company: 'Google DeepMind', calendarApiId: 'cal-7Q5A70Bz5Idxopu' },
-    { provider: 'luma', company: 'Modal', calendarApiId: 'cal-lYa2810srHvkQRC' },
-    { provider: 'luma', company: 'Cursor', calendarApiId: 'cal-iRJOAxy06J8zCJd' },
-    { provider: 'luma', company: 'LangChain', calendarApiId: 'cal-mvNH1VHlaFtSMFx' },
-    { provider: 'luma', company: 'Cloudflare', calendarApiId: 'cal-BM6bfUtS2kt0waC' },
-    { provider: 'luma', company: 'Hugging Face', calendarApiId: 'cal-BHCbNUcyZTBdvrw' },
-    { provider: 'luma', company: 'Weights & Biases', calendarApiId: 'cal-8kHjPsvCPQtYtUp' },
-    { provider: 'luma', company: 'Vercel', calendarApiId: 'cal-gSh9SvoKtY7rLNY' },
-    { provider: 'luma', company: 'Perplexity', calendarApiId: 'cal-twKC2Cvup5GBDvt' },
-    { provider: 'luma', company: 'ElevenLabs', calendarApiId: 'cal-mPiXcxrFngw3uC3' },
-    { provider: 'luma', company: 'Linear', calendarApiId: 'cal-yQRC7YwpEmCUqGF' },
-    { provider: 'luma', company: 'Notion Toronto', slug: 'notiontoronto' },
-    { provider: 'tribe', company: 'Vector Institute', base: 'https://vectorinstitute.ai', city: 'Toronto' },
+    { provider: 'luma', company: 'Cohere', industry: 'AI Labs', calendarApiId: 'cal-400NOkbFqzrkJNA' },
+    { provider: 'luma', company: 'Google DeepMind', industry: 'AI Labs', calendarApiId: 'cal-7Q5A70Bz5Idxopu' },
+    { provider: 'luma', company: 'Modal', industry: 'Cloud & Infra', calendarApiId: 'cal-lYa2810srHvkQRC' },
+    { provider: 'luma', company: 'Cursor', industry: 'Dev Tools', calendarApiId: 'cal-iRJOAxy06J8zCJd' },
+    { provider: 'luma', company: 'LangChain', industry: 'Dev Tools', calendarApiId: 'cal-mvNH1VHlaFtSMFx' },
+    { provider: 'luma', company: 'Cloudflare', industry: 'Cloud & Infra', calendarApiId: 'cal-BM6bfUtS2kt0waC' },
+    { provider: 'luma', company: 'Hugging Face', industry: 'AI Labs', calendarApiId: 'cal-BHCbNUcyZTBdvrw' },
+    { provider: 'luma', company: 'Weights & Biases', industry: 'ML & Data', calendarApiId: 'cal-8kHjPsvCPQtYtUp' },
+    { provider: 'luma', company: 'Vercel', industry: 'Dev Tools', calendarApiId: 'cal-gSh9SvoKtY7rLNY' },
+    { provider: 'luma', company: 'Perplexity', industry: 'AI Labs', calendarApiId: 'cal-twKC2Cvup5GBDvt' },
+    { provider: 'luma', company: 'ElevenLabs', industry: 'AI Labs', calendarApiId: 'cal-mPiXcxrFngw3uC3' },
+    { provider: 'luma', company: 'Linear', industry: 'Dev Tools', calendarApiId: 'cal-yQRC7YwpEmCUqGF' },
+    { provider: 'luma', company: 'Notion Toronto', industry: 'Dev Tools', slug: 'notiontoronto' },
+
+    // Additional active calendars (verified upcoming events 2026-06-13).
+    { provider: 'luma', company: 'Fireworks AI', industry: 'AI Labs', calendarApiId: 'cal-b0bByM1vbBukIX5' },
+    { provider: 'luma', company: 'Together AI', industry: 'AI Labs', calendarApiId: 'cal-Icg56OoJNDuOt3e' },
+    { provider: 'luma', company: 'Runway', industry: 'AI Labs', calendarApiId: 'cal-hPh8ZoNbzhxXtAX' },
+    { provider: 'luma', company: 'Pinecone', industry: 'ML & Data', calendarApiId: 'cal-2M3Hb2l8cLcIrdd' },
+    { provider: 'luma', company: 'LlamaIndex', industry: 'ML & Data', calendarApiId: 'cal-ftFzB9u29zBCzLC' },
+    { provider: 'luma', company: 'Comet', industry: 'ML & Data', calendarApiId: 'cal-KYVKY6E5Qt1z6PW' },
+    { provider: 'luma', company: 'MotherDuck', industry: 'ML & Data', calendarApiId: 'cal-k7S7WUj7XGgcjsC' },
+    { provider: 'luma', company: 'Render', industry: 'Dev Tools', calendarApiId: 'cal-WUpOAuId3YmWDse' },
+    { provider: 'luma', company: 'PostHog', industry: 'Dev Tools', calendarApiId: 'cal-qJCKF7ct5XX3pwB' },
+    { provider: 'luma', company: 'Resend', industry: 'Dev Tools', calendarApiId: 'cal-R5PuHGCSvEkrFvh' },
+    { provider: 'luma', company: 'Inngest', industry: 'Dev Tools', calendarApiId: 'cal-8SRs6VK5CS4mgEl' },
+    { provider: 'luma', company: 'Pulumi', industry: 'Dev Tools', calendarApiId: 'cal-WHLXhxFwCUYbG49' },
+    { provider: 'luma', company: 'Raycast', industry: 'Dev Tools', calendarApiId: 'cal-KwZeQ0HC9LFQ3Fk' },
+
+    // Canadian innovation hubs / ecosystem orgs (recurring AI/dev programming).
+    { provider: 'luma', company: 'Communitech', industry: 'Startups & VC', calendarApiId: 'cal-xN0J6QkQRTN3jiU' },
+    { provider: 'luma', company: 'MaRS Discovery District', industry: 'Startups & VC', calendarApiId: 'cal-JyxiKgDYFePUjAL' },
+
+    { provider: 'tribe', company: 'Vector Institute', industry: 'Research', base: 'https://vectorinstitute.ai', city: 'Toronto' },
 ];
+
+/** Flat directory for the UI — every tracked company + its industry, name-sorted. */
+export const COMPANY_DIRECTORY: { name: string; industry: Industry }[] = COMPANY_SOURCES.map(
+    (s) => ({ name: s.company, industry: s.industry }),
+).sort((a, b) => a.name.localeCompare(b.name));
+
+/** Companies whose feed is mostly consumer/retail — keep only dev-relevant events. */
+export const DEV_ONLY_COMPANIES = new Set(
+    COMPANY_SOURCES.filter((s) => s.devOnly).map((s) => s.company),
+);

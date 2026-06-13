@@ -59,6 +59,8 @@ export interface EventQuery {
 const MODES = ['online', 'offline', 'hybrid'];
 const CATEGORIES = ['hackathon', 'meetup', 'conference', 'networking'];
 const SOURCES = ['luma', 'eventbrite', 'meetup', 'mlh', 'company'];
+/** Community platforms collapsed into the "Local" lane (source=local). */
+const LOCAL_SOURCES = ['luma', 'eventbrite', 'meetup'];
 
 /** Today's date string in the events' home timezone — the feed shows upcoming by default. */
 export function todayInToronto(): string {
@@ -70,6 +72,22 @@ export function todayInToronto(): string {
 
 function escapeRegex(s: string) {
     return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+const NON_CITY = ['Online', 'TBA', 'Hybrid Event', ''];
+
+/**
+ * Distinct upcoming-event cities, optionally scoped to a region — powers the
+ * city dropdown so it reflects real data (US cities when region=us, etc.)
+ * instead of a hardcoded Canadian list.
+ */
+export async function distinctCities(region?: string): Promise<string[]> {
+    await connectDB();
+    const match: QueryFilter<IEvent> = { date: { $gte: todayInToronto() }, city: { $nin: NON_CITY } };
+    if (region === 'canada') match.region = 'CA';
+    else if (region === 'us') match.region = 'US';
+    const cities = (await Event.distinct('city', match)) as string[];
+    return cities.filter(Boolean).sort((a, b) => a.localeCompare(b));
 }
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -103,7 +121,11 @@ export async function queryEvents(params: EventQuery = {}): Promise<EventPage> {
     if (params.category && CATEGORIES.includes(params.category)) {
         filter.category = params.category as IEvent['category'];
     }
-    if (params.source && SOURCES.includes(params.source)) {
+    if (params.source === 'local') {
+        // UX lane: Luma/Eventbrite/Meetup are one "Local events" bucket — the
+        // platform doesn't matter to someone browsing for something to attend.
+        filter.source = { $in: LOCAL_SOURCES as IEvent['source'][] };
+    } else if (params.source && SOURCES.includes(params.source)) {
         filter.source = params.source as IEvent['source'];
     } else if (params.sources?.length) {
         filter.source = { $in: params.sources.filter((s) => SOURCES.includes(s)) as IEvent['source'][] };
@@ -176,8 +198,8 @@ export interface HomeSections {
     online: EventDoc[];
 }
 
-/** Companies with upcoming events, busiest first — drives the home-page chips. */
-async function upcomingCompanies(): Promise<{ name: string; count: number }[]> {
+/** Companies with upcoming events, busiest first — drives the home-page chips + directory counts. */
+export async function upcomingCompanies(): Promise<{ name: string; count: number }[]> {
     await connectDB();
     const rows = await Event.aggregate([
         { $match: { source: 'company', date: { $gte: todayInToronto() } } },

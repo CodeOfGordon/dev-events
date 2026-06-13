@@ -5,7 +5,7 @@ import EventImage from '@/components/EventImage';
 import AddToCalendar from '@/components/AddToCalendar';
 import RegisterButton from '@/components/RegisterButton';
 import EventGrid from '@/components/EventGrid';
-import { CATEGORY_LABELS, HIDDEN_TAGS, MODE_LABELS, SOURCE_LABELS } from '@/lib/constants';
+import { CATEGORY_LABELS, HIDDEN_TAGS, LANE_LABELS, laneOf, MODE_LABELS } from '@/lib/constants';
 import { formatDate, formatTime } from '@/lib/format';
 import { getEventBySlug, getRelatedEvents } from '@/lib/events';
 
@@ -54,13 +54,12 @@ const EventPage = async ({ params }: { params: Params }) => {
     if (!event) notFound();
 
     const related = await getRelatedEvents(event);
-    const isCompany = event.source === 'company';
     const tags = event.tags.filter((t) => !HIDDEN_TAGS.includes(t));
 
     const chips = [
         event.category && CATEGORY_LABELS[event.category],
         MODE_LABELS[event.mode],
-        isCompany ? 'Company event' : SOURCE_LABELS[event.source],
+        `${LANE_LABELS[laneOf(event.source, event.category)]} event`,
     ].filter(Boolean) as string[];
 
     return (

@@ -1,10 +1,11 @@
 import Link from 'next/link';
 import Image from 'next/image';
 
-// Order mirrors the site hierarchy: companies first, hackathons, then everything
+// Order mirrors the site lanes: companies first, hackathons, local, then everything
 const LINKS = [
     { href: '/events?source=company', label: 'Companies' },
     { href: '/events?category=hackathon', label: 'Hackathons' },
+    { href: '/events?source=local', label: 'Local' },
     { href: '/events', label: 'All events' },
 ];
 

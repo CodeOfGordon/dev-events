@@ -34,7 +34,9 @@ export async function GET(request: NextRequest) {
     }
 
     const source = sp.get('source');
-    if (source && SOURCES.includes(source)) {
+    if (source === 'local') {
+        filter.source = { $in: ['luma', 'eventbrite', 'meetup'] as IEvent['source'][] };
+    } else if (source && SOURCES.includes(source)) {
         filter.source = source as IEvent['source'];
     }
 

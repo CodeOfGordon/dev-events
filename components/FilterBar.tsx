@@ -3,7 +3,7 @@
 import { useCallback } from 'react';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import posthog from 'posthog-js';
-import { CITIES, CATEGORY_LABELS, DATE_PRESETS, MODE_LABELS, REGION_LABELS, SOURCE_LABELS } from '@/lib/constants';
+import { CATEGORY_LABELS, DATE_PRESETS, MODE_LABELS, REGION_LABELS } from '@/lib/constants';
 
 /** Resolve a date-preset key to a from/to range (Toronto-local today). */
 function presetRange(preset: string): { from?: string; to?: string } {
@@ -28,7 +28,20 @@ function currentPreset(sp: URLSearchParams): string {
 const SELECT_CLS =
     'bg-dark-100 border-dark-200 text-light-100 cursor-pointer rounded-lg border px-3 py-2 text-sm focus:border-primary focus:outline-none';
 
-const FilterBar = () => {
+type Lane = 'all' | 'company' | 'hackathon' | 'local';
+
+interface Props {
+    /** Distinct cities for the current region scope (data-driven). */
+    cities: string[];
+    /** Company names that currently have upcoming events (company lane). */
+    companies: string[];
+}
+
+/**
+ * Contextual filter bar — only shows the filters that matter for the active lane,
+ * so the page's structure comes from the lane you picked, not one giant filter set.
+ */
+const FilterBar = ({ cities, companies }: Props) => {
     const router = useRouter();
     const pathname = usePathname();
     const sp = useSearchParams();
@@ -47,7 +60,13 @@ const FilterBar = () => {
         [router, pathname, sp],
     );
 
-    const select = (name: string, label: string, options: [string, string][], value: string, onChange?: (v: string) => void) => (
+    const select = (
+        name: string,
+        label: string,
+        options: [string, string][],
+        value: string,
+        onChange?: (v: string) => void,
+    ) => (
         <label className="flex flex-col gap-1">
             <span className="text-light-200 text-xs font-semibold uppercase tracking-wider">{label}</span>
             <select
@@ -62,16 +81,46 @@ const FilterBar = () => {
         </label>
     );
 
-    const hasFilters = ['region', 'category', 'city', 'mode', 'price', 'source', 'organizer', 'from', 'to', 'q'].some((k) => sp.get(k));
+    const lane: Lane =
+        sp.get('source') === 'company'
+            ? 'company'
+            : sp.get('category') === 'hackathon' || sp.get('source') === 'mlh'
+              ? 'hackathon'
+              : sp.get('source') === 'local'
+                ? 'local'
+                : 'all';
+
+    const cityOpts = cities.map((c): [string, string] => [c, c]);
+    const companyOpts = companies.map((c): [string, string] => [c, c]);
+    const hasFilters = ['region', 'category', 'city', 'mode', 'price', 'organizer', 'from', 'to', 'q'].some((k) =>
+        sp.get(k),
+    );
 
     return (
         <div className="bg-dark-100/40 border-dark-200 flex flex-wrap items-end gap-3 rounded-xl border p-4">
-            {select('region', 'Region', [['', 'All of N. America'], ...Object.entries(REGION_LABELS)], sp.get('region') ?? '')}
-            {select('category', 'Type', [['', 'All types'], ...Object.entries(CATEGORY_LABELS)], sp.get('category') ?? '')}
-            {select('city', 'City', [['', 'All cities'], ...CITIES.map((c): [string, string] => [c, c])], sp.get('city') ?? '')}
+            {/* Region resets city — a Toronto pick is meaningless once you switch to the US. */}
+            {select(
+                'region',
+                'Region',
+                [['', 'All of N. America'], ...Object.entries(REGION_LABELS)],
+                sp.get('region') ?? '',
+                (value) => apply({ region: value, city: '' }),
+            )}
+
+            {lane === 'company' && companyOpts.length > 0 &&
+                select('organizer', 'Company', [['', 'All companies'], ...companyOpts], sp.get('organizer') ?? '')}
+
+            {lane !== 'company' && lane !== 'hackathon' && cityOpts.length > 0 &&
+                select('city', 'City', [['', 'All cities'], ...cityOpts], sp.get('city') ?? '')}
+
+            {(lane === 'all' || lane === 'local') &&
+                select('category', 'Type', [['', 'All types'], ...Object.entries(CATEGORY_LABELS)], sp.get('category') ?? '')}
+
             {select('mode', 'Format', [['', 'Any format'], ...Object.entries(MODE_LABELS)], sp.get('mode') ?? '')}
-            {select('price', 'Price', [['', 'Any price'], ['free', 'Free'], ['paid', 'Paid']], sp.get('price') ?? '')}
-            {select('source', 'Source', [['', 'All sources'], ...Object.entries(SOURCE_LABELS)], sp.get('source') ?? '')}
+
+            {(lane === 'all' || lane === 'local') &&
+                select('price', 'Price', [['', 'Any price'], ['free', 'Free'], ['paid', 'Paid']], sp.get('price') ?? '')}
+
             {select(
                 'date',
                 'When',
@@ -88,7 +137,13 @@ const FilterBar = () => {
                     type="button"
                     onClick={() => {
                         posthog.capture('filter_applied', { cleared: true });
-                        router.push(pathname);
+                        // Preserve the active lane when clearing field filters.
+                        const lanePart = sp.get('source')
+                            ? `?source=${sp.get('source')}`
+                            : sp.get('category')
+                              ? `?category=${sp.get('category')}`
+                              : '';
+                        router.push(`${pathname}${lanePart}`);
                     }}
                     className="text-light-200 hover:text-primary cursor-pointer px-2 py-2 text-sm underline-offset-4 hover:underline"
                 >

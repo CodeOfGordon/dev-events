@@ -241,6 +241,43 @@ community events classified INTL).
 
 ---
 
+## ADR-017 — UX lanes, company directory, consumer-event filter (refines ADR-016)
+**Status**: Accepted · 2026-06-13
+
+**Context**: Feedback after ADR-016: (1) the company feed felt barren and Tesla-
+dominated (13 consumer "Father's Day"/store events); (2) the city dropdown only ever
+showed Canadian cities even under region=US; (3) Luma vs Eventbrite vs Meetup is a
+meaningless distinction to someone browsing; (4) the single filter bar carried all the
+structure. User also asked to surface *which* companies are tracked, grouped by industry.
+
+**Decisions**:
+- **Lanes** replace source-as-filter: Companies (`source=company`), Hackathons
+  (`category=hackathon`), Local (`source=local` → Luma+Eventbrite+Meetup collapsed),
+  All. `/events` shows lane tabs + a per-lane title and a contextual FilterBar (only the
+  filters that matter for that lane). Card/detail badges show the lane (Company/Hackathon/
+  Local), not the platform. `laneOf()` in constants.ts is the single source of truth.
+  Real platform names are kept only where they matter (RegisterButton).
+- **Company directory** (`components/CompanyDirectory.tsx`): every tracked company grouped
+  by `industry` (new field on each `COMPANY_SOURCES` entry; `INDUSTRY_ORDER` +
+  `COMPANY_DIRECTORY` exports), shown on the company lane with live counts; 0-count
+  companies stay listed (dimmed) so coverage is visible. Each chip filters by `organizer`.
+- **Consumer-event filter**: `isConsumerEvent()` (relevance.ts) drops retail noise
+  (Father's Day, test drive, store events) from ALL company feeds; consumer brands flagged
+  `devOnly` (Tesla) additionally require `isRelevant(title+description)` — NOT tags, which
+  always carry a baseline 'tech' tag that would match everything. Tesla → 0 events (stays
+  in the directory as tracked-but-inactive).
+- **Region-aware cities**: `distinctCities(region)` derives the city dropdown from real
+  data scoped to the region, so US shows US cities. The hardcoded `CITIES` list is retired
+  from the dropdown.
+
+**Consequences**: Company feed went from ~15 events (Tesla-heavy) to ~93 across ~28 active
+companies (38 tracked). Canadian company dev events are genuinely sparse — best Canadian
+coverage comes from ecosystem hubs (Communitech, MaRS, Vector Institute) + the Canada-scoped
+city feeds, not big-tech company calendars (most have none). Adding a company is still one
+config line (now with an `industry`).
+
+---
+
 ## Known follow-ups / tech debt
 - ~~`database/mongodb.ts` stray `v8` import~~ — already removed.
 - ~~`normalizeDate()` UTC day-shift~~ — **fixed 2026-06-10**: `normalizeDate`/`normalizeTime` extract wall-clock parts in the event's IANA timezone (`Intl.DateTimeFormat`); `event.model.ts` reuses the same helpers.
